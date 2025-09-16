@@ -3,7 +3,8 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncGenerator, Dict, Optional
+import re
+from typing import Any, AsyncGenerator, Dict, Optional, List
 
 import gradio as gr
 
@@ -197,6 +198,71 @@ async def _handle_new_step(
     await asyncio.sleep(0.05)
 
 
+def _extract_urls_from_history(history: AgentHistoryList) -> List[str]:
+    url_re = re.compile(r'https?://[^\s)>"\\\']+')
+    seen = set()
+    urls: List[str] = []
+
+    def _is_linkedin_post_url(u: str) -> bool:
+        try:
+            base = u.split("?", 1)[0]
+        except Exception:
+            base = u
+        # LinkedIn post permalinks commonly include one of the following
+        return (
+            "linkedin.com/feed/update/" in base
+            or "urn:li:activity" in base
+            or ("linkedin.com" in base and "/posts/" in base)
+        )
+
+    # 1) Parse the "final result" field if possible
+    try:
+        fr = history.final_result()
+        if fr:
+            if isinstance(fr, str):
+                for u in url_re.findall(fr):
+                    if u not in seen and _is_linkedin_post_url(u):
+                        seen.add(u)
+                        urls.append(u)
+            elif isinstance(fr, (list, tuple)):
+                for item in fr:
+                    for u in url_re.findall(str(item)):
+                        if u not in seen and _is_linkedin_post_url(u):
+                            seen.add(u)
+                            urls.append(u)
+            elif isinstance(fr, dict):
+                # Prefer structured keys if present
+                for key in ("post_links", "links", "urls"):
+                    if key in fr and isinstance(fr[key], (list, tuple)):
+                        for u in fr[key]:
+                            if isinstance(u, str) and u.startswith("http") and u not in seen and _is_linkedin_post_url(u):
+                                seen.add(u)
+                                urls.append(u)
+                # Also scan entire dict JSON as fallback
+                for u in url_re.findall(json.dumps(fr, ensure_ascii=False)):
+                    if u not in seen and _is_linkedin_post_url(u):
+                        seen.add(u)
+                        urls.append(u)
+    except Exception:
+        pass
+
+    # 2) Walk through step results (ActionResult.extracted_content, error)
+    try:
+        for h in getattr(history, "history", []) or []:
+            for r in getattr(h, "result", []) or []:
+                for field in ("extracted_content", "error"):
+                    val = getattr(r, field, None)
+                    if isinstance(val, str):
+                        for u in url_re.findall(val):
+                            if u not in seen and _is_linkedin_post_url(u):
+                                seen.add(u)
+                                urls.append(u)
+    except Exception:
+        pass
+
+    return urls
+
+
 def _handle_done(webui_manager: WebuiManager, history: AgentHistoryList):
     """Callback when the agent finishes the task (success or failure)."""
     logger.info(
@@ -209,6 +275,12 @@ def _handle_done(webui_manager: WebuiManager, history: AgentHistoryList):
     final_result = history.final_result()
     if final_result:
         final_summary += f"- Final Result: {final_result}\n"
+
+    # NEW: Extract and display final links if any were found
+    links = _extract_urls_from_history(history)
+    if links:
+        final_summary += "- Final Links:\n"
+        final_summary += "".join(f"  - {u}\n" for u in links)
 
     errors = history.errors()
     if errors and any(errors):
