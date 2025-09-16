@@ -106,6 +106,23 @@ class CustomController(Controller):
                 logger.info(msg)
                 return ActionResult(error=msg)
 
+        @self.registry.action(
+            "Read clipboard content and return it as extracted content. Use this after clicking 'Copy link to post'."
+        )
+        async def read_clipboard(browser: BrowserContext):
+            try:
+                text = pyperclip.paste()
+                if not text:
+                    msg = 'Clipboard is empty.'
+                    logger.info(msg)
+                    return ActionResult(error=msg)
+                logger.info(f'Read clipboard text: {text[:200]}')
+                return ActionResult(extracted_content=text, include_in_memory=True)
+            except Exception as e:
+                msg = f'Failed to read clipboard: {str(e)}'
+                logger.info(msg)
+                return ActionResult(error=msg)
+
     @time_execution_sync('--act')
     async def act(
             self,
