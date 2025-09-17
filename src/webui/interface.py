@@ -22,8 +22,8 @@ theme_map = {
 def create_ui(theme_name="Ocean"):
     css = """
     .gradio-container {
-        width: 70vw !important; 
-        max-width: 70% !important; 
+        width: min(95vw, 1600px) !important; 
+        max-width: 100% !important; 
         margin-left: auto !important;
         margin-right: auto !important;
         padding-top: 10px !important;
