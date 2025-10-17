@@ -9,4 +9,4 @@ langchain_mcp_adapters==0.0.9
 langgraph==0.3.34
 langchain-community
 lxml_html_clean
-setuptools
+setuptools 
